@@ -1,0 +1,120 @@
+---
+title: "1992 U.S. Presidential election"
+author: "Ali Seada and Lovis Trüstedt"
+date: "24 6 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Read the data into R environment
+
+```{r}
+library(pacman)
+p_load(ggplot2,   # reportable graphs 
+       cowplot,   # arranges ggplot graphs nicely
+       stargazer, # nice tables
+       glmnet,    # for regularization (lasso, ridge, elastic net)
+       pROC)      # ROC AUC
+```
+
+```{r}
+vote <- read.csv("vote92.csv", sep = ",", header = T,stringsAsFactors = T)
+```
+
+```{r}
+str(vote)
+
+vote$dem <-as.factor(vote$dem)
+vote$rep <-as.factor(vote$rep)
+vote$female <-as.factor(vote$female)
+vote$persfinance <-as.factor(vote$persfinance)
+vote$natlecon <-as.factor(vote$natlecon)
+# ??should be numeric by definition in doc
+# ??X required in previous HAs
+
+str(vote)
+```
+
+I decided to change some of the numeric variables to Factors. Because it makes more sense to have them as factors than as numeric variables.
+
+## Preprocess the data, preparing it for the modeling
+
+- Missing values
+
+```{r}
+# find explicit NAs
+colSums(is.na(vote))
+# find implicit NAs through empty cells
+apply(vote, 2, function(g) sum(g == "")) # !!impute all empty to NA then print all NA
+```
+
+We don't have any missing Values in this data set
+
+* handle sparse classes of categorical variables
+
+```{r}
+table(vote$vote) # §§fixed the forced print syntax
+table(vote$dem)
+table(vote$rep) 
+table(vote$female) 
+table(vote$persfinance) 
+table(vote$natlecon)
+```
+
+The categorical variables are simplified enough and don't need anything else to be done to it.
+
+* take care of outliers and treating the skewed distribution and creating new features 
+
+```{r}
+zScores <- function(var){
+    mu <- mean(var)
+    sd <-  sd(var)
+    scores <- (var - mu)/sd
+    return(scores)
+}
+```
+
+```{r}
+# inspecting the distribution of the variable
+ggplot(vote, aes((clintondis))) +
+  geom_density(na.rm = T)
+
+# inspecting zScores and outliers
+z_income <-zScores(vote$clintondis)
+
+z_income[z_income > 10]
+
+
+# imputing outliers
+vote$clintondis_tr <- vote$clintondis
+vote$clintondis_tr[z_income > 10] <- mean(vote$clintondis_tr, na.rm=T) + 
+  10*sd(vote$clintondis_tr)
+
+# creating the log transformation
+vote$clintondis_tr <- (vote$clintondis_tr)
+
+# inspecting distribution of the log transformation
+ggplot(vote, aes((clintondis_tr))) +
+  geom_density(na.rm = T)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
