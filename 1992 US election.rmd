@@ -1,6 +1,6 @@
 ---
 title: "1992 U.S. Presidential election"
-author: "Ali Seada and Paul Lovis Maximilian Trüstedt" # !!more names
+author: "Ali Tarek Maher Ibrahim Seada and Paul Lovis Maximilian Trüstedt"
 date: "24 6 2021"
 output: pdf_document
 ---
@@ -136,3 +136,131 @@ plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
 # !!fix legend print and axis descriptions, also colours
 ```
 ___INSERT___
+
+## Building the models
+```{r}
+# splitting the data into train and test
+set.seed(777)
+train.Index <-  sample(1:nrow(vote), round(0.7*nrow(vote)), replace = F)
+# creating the train and test sets using train.Index 
+vote.train <- vote[train.Index,]
+vote.test  <- vote[-train.Index,]
+  
+# creating x and y for model training
+# y - a target vector
+y.train <- vote.train$vote_num
+y.test  <- vote.test$vote_num
+
+# X - a matrix with features/predictors 
+features <- c('dem','rep','female','persfinance','natlecon', 
+              'clintondis', 'bushdis','perotdis')
+
+
+#model.matrix( ~ ., data = scoring.train[, features])
+X.train <- model.matrix( ~ . -1, data = vote.train[, features])
+X.test  <- model.matrix( ~ . -1, data = vote.test[, features])
+
+```
+
+
+1.  L1-nrom / Lasso
+
+```{r}
+log_l1 <- glmnet(X.train, y.train, alpha = 1)
+
+plot(log_l1, xvar = "lambda")
+legend("bottomright", lwd = 1, col = 1:6, legend = colnames(X.train), cex = .4)
+
+plot(y = log_l1$dev.ratio, 
+     x = log_l1$lambda,
+     xlab = "lambda",
+     ylab = "R-squared")
+
+
+# selecting the optimal lambda
+set.seed(77)
+log_l1_cv <- cv.glmnet(X.train, y.train, alpha = 1, type.measure = "class", 
+                       lambda = 10^seq(-5, 1, length.out = 100) , nfolds = 10)
+
+
+
+y.predlog_l1 <-  predict(log_l1, newx = X.test, 
+                         type = "response", s = log_l1_cv$lambda.min)
+```
+
+```{r}
+# Setting alpha = 0 implements ridge regression
+log_r1 <- glmnet(X.train, y.train, alpha = 0)
+
+
+plot(log_r1, xvar = "lambda")
+legend("bottomright", lwd = 1, col = 1:6, legend = colnames(X.test), cex = .3)
+
+
+plot(y = log_r1$dev.ratio, 
+     x = log_r1$lambda,
+     xlab = "lambda",
+     ylab = "R-squared")
+
+# selecting the optimal lambda
+set.seed(77)
+log_r1_cv <- cv.glmnet(X.train, y.train, alpha = 0, type.measure = "class", 
+                       lambda = 10^seq(-5, 1, length.out = 100), 
+                        nfolds = 10)
+
+y.predlog_r1 <-  predict(log_r1,    newx = X.test, 
+                         type = "response", s = log_r1_cv$lambda.min)
+
+```
+
+```{r}
+#only catagorical 
+
+log1 <- glm(vote_num ~  dem + rep + female + persfinance + 
+              natlecon + clintondis + persfinance + perotdis,
+           data = vote)
+#both
+log2 <- glm(vote_num ~ dem + rep + female +persfinance +
+          natlecon ,
+           data = vote)
+
+#only continous
+log3 <- glm(vote_num ~ clintondis + bushdis +
+              perotdis,
+           data = vote)
+
+
+pred.log1 <- predict(log1, vote, type = "response")
+pred.log2 <- predict(log2, vote, type = "response")
+pred.log3 <- predict(log3, vote, type = "response")
+```
+
+## Predictions
+
+```{r}
+Accuracy <- function(pred, real, threshold = 0.5){
+  predClass <-  ifelse(pred > threshold, 1, 0)
+  acc <- sum(predClass == real) / length(real)
+  return(acc)
+}
+```
+
+```{r}
+(acc1 <- Accuracy(pred = pred.log1, real = vote$vote_num))
+(acc2 <- Accuracy(pred = pred.log2, real = vote$vote_num))
+(acc3 <- Accuracy(pred = pred.log3, real = vote$vote_num))
+# Brier Score
+(BS.log1 <- sqrt(mean((vote$vote_num - pred.log1)^2)))
+(BS.log2 <- sqrt(mean((vote$vote_num- pred.log2)^2)))
+(BS.log3 <- sqrt(mean((vote$vote_num - pred.log3)^2)))
+
+```
+
+```{r}
+(accLasso <- Accuracy(pred = y.predlog_l1, real = y.test))
+(accLRidge <- Accuracy(pred = y.predlog_r1, real = y.test))
+
+(BS.logL1 <- sqrt(mean((y.test - y.predlog_l1)^2)))
+(BS.logL2 <- sqrt(mean((y.test - y.predlog_r1)^2)))
+
+```
