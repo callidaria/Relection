@@ -1,8 +1,8 @@
 ---
 title: "1992 U.S. Presidential election"
-author: "Ali Seada and Lovis Trüstedt"
+author: "Ali Seada and Paul Lovis Maximilian Trüstedt" # !!more names
 date: "24 6 2021"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Read the data into R environment
-
 ```{r}
 library(pacman)
 p_load(ggplot2,   # reportable graphs 
@@ -18,103 +17,122 @@ p_load(ggplot2,   # reportable graphs
        stargazer, # nice tables
        glmnet,    # for regularization (lasso, ridge, elastic net)
        pROC)      # ROC AUC
-```
-
-```{r}
-vote <- read.csv("vote92.csv", sep = ",", header = T,stringsAsFactors = T)
-```
-
-```{r}
+rm(list=ls())
+vote<-read.csv("vote92.csv")
 str(vote)
-
-vote$dem <-as.factor(vote$dem)
-vote$rep <-as.factor(vote$rep)
-vote$female <-as.factor(vote$female)
-vote$persfinance <-as.factor(vote$persfinance)
-vote$natlecon <-as.factor(vote$natlecon)
-# ??should be numeric by definition in doc
-# ??X required in previous HAs
-
-str(vote)
+summary(vote)
+# ??remove cowplot, stargazer & pROC
 ```
-
-I decided to change some of the numeric variables to Factors. Because it makes more sense to have them as factors than as numeric variables.
 
 ## Preprocess the data, preparing it for the modeling
-
-- Missing values
-
 ```{r}
-# find explicit NAs
-colSums(is.na(vote))
-# find implicit NAs through empty cells
-apply(vote, 2, function(g) sum(g == "")) # !!impute all empty to NA then print all NA
+vote$dem<-as.factor(vote$dem)
+vote$rep<-as.factor(vote$rep)
+vote$female<-as.factor(vote$female)
+vote$persfinance<-as.factor(vote$persfinance)
+vote$natlecon<-as.factor(vote$natlecon)
+vote$polID<-as.factor((as.numeric(vote$dem)-1)+(as.numeric(vote$rep)*2-1))
+str(vote)
 ```
+We decided to change some of the numeric variables to factors, because it makes more sense to have them as categorical than as numeric variables.
+Also this way, we can see, that there are no problems with the categorical variables regarding wrong values, because all provided levels are described by the given data set definition.
+Additionally we create a categorical variable called polID to summarize which political party the respondent is identifying himself with.
 
-We don't have any missing Values in this data set
-
-* handle sparse classes of categorical variables
-
+- treat missing values
 ```{r}
-table(vote$vote) # §§fixed the forced print syntax
+colSums(is.na(vote))
+```
+There are no missing values in this data set. No NAs, as well as data, that could otherwise be identified as missing.
+
+- handle sparse classes of categorical predictors
+```{r}
+table(vote$vote) # !!make these tables pretty (bar plot coloured)
 table(vote$dem)
-table(vote$rep) 
-table(vote$female) 
-table(vote$persfinance) 
+table(vote$rep)
+table(vote$female)
+table(vote$persfinance)
+table(vote$natlecon) # ??leave fusion of 0 and 1, technically sparse
+vote$natlecon[vote$natlecon==1]<-0
+vote$natlecon[vote$natlecon==-1]<-1
+vote$natlecon=droplevels(vote$natlecon)
 table(vote$natlecon)
 ```
+DEF X,O
+X The categorical variables are simplified enough and don't need anything else to be done to them.
+OR IF UPDATE LEFT
+O We leave everything as is except for natlecon which has a sparse class regarding the level 1.
+As solution we combine 0 and 1 as the level 0, meaning national economic conditions have gotten better or stayed the same over the last 12 months.
+Level -1 gets changed to 1 as well which now means that conditions have gotten better.
+The change from -1 to 1 is executed just because it is more common to have levels 0 and 1 instead of 0 and -1.
 
-The categorical variables are simplified enough and don't need anything else to be done to it.
-
-* take care of outliers and treating the skewed distribution and creating new features 
-
+- take care of outliers, treat the skewed distributions and create new features 
 ```{r}
-zScores <- function(var){
-    mu <- mean(var)
-    sd <-  sd(var)
-    scores <- (var - mu)/sd
-    return(scores)
+zScores<-function(var) {
+    mu<-mean(var)
+    sd<-sd(var)
+    return((var-mu)/sd)
 }
+
+# treating clintondis
+tp1<-ggplot(vote,aes(clintondis))+geom_boxplot()+coord_flip()
+vote$clintondis_fo<-vote$clintondis
+vote$clintondis_fo[zScores(vote$clintondis_fo)>1]<-
+    round(mean(vote$clintondis_fo))+sd(vote$clintondis_fo)
+tp2<-ggplot(vote,aes(clintondis_fo))+geom_boxplot()+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+
+# treating bushdis
+tp1<-ggplot(vote,aes(bushdis))+geom_boxplot()+coord_flip()
+vote$bushdis_fo<-vote$bushdis
+vote$bushdis_fo[zScores(vote$bushdis_fo)>2]<-
+    round(mean(vote$bushdis_fo))+2*sd(vote$bushdis_fo)
+tp2<-ggplot(vote,aes(bushdis_fo))+geom_boxplot()+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+
+# treating perotdis
+tp1<-ggplot(vote,aes(perotdis))+geom_boxplot()+coord_flip()
+vote$perotdis_fo<-vote$perotdis
+vote$perotdis_fo[zScores(vote$perotdis_fo)>1]<-
+    round(mean(vote$perotdis_fo))+sd(vote$perotdis_fo)
+tp2<-ggplot(vote,aes(perotdis_fo))+geom_boxplot()+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+
+# !!make this shit beautiful
+# !!reduce the outlier fixes with function
+# ??passable results
+# ??no skewed right
+# ??do we actually need to fix outliers for the squared differences
 ```
+There are a few outliers in the variables clintondis, bushdis and perotdis. We fix those outliers and save the fixed data in the variables called [original_var_name]_fo. The ending "fo" is derived from "fixed outliers".
+
+- explore the relationships between predictors and the target
+```{r}
+ggplot(vote,aes(vote,fill=polID))+geom_bar() # !!fix colours and descriptions
+# !!add percentiles to those splitted barplots somehow
+```
+___INSERT___
 
 ```{r}
-# inspecting the distribution of the variable
-ggplot(vote, aes((clintondis))) +
-  geom_density(na.rm = T)
-
-# inspecting zScores and outliers
-z_income <-zScores(vote$clintondis)
-
-z_income[z_income > 10]
-
-
-# imputing outliers
-vote$clintondis_tr <- vote$clintondis
-vote$clintondis_tr[z_income > 10] <- mean(vote$clintondis_tr, na.rm=T) + 
-  10*sd(vote$clintondis_tr)
-
-# creating the log transformation
-vote$clintondis_tr <- (vote$clintondis_tr)
-
-# inspecting distribution of the log transformation
-ggplot(vote, aes((clintondis_tr))) +
-  geom_density(na.rm = T)
+ggplot(vote,aes(vote,fill=female))+geom_bar()
 ```
+___INSERT___
 
+```{r}
+p1<-ggplot(vote,aes(vote,fill=persfinance))+geom_bar()
+p2<-ggplot(vote,aes(vote,fill=natlecon))+geom_bar()
+plot_grid(p1,p2,ncol=2)
+# !!fix repeating barplot by creating a more diverse visual representation
+```
+___INSERT___
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```{r}
+p1<-ggplot(vote,aes(clintondis_fo,fill=vote))+geom_histogram(bins=3)
+p2<-ggplot(vote,aes(bushdis_fo,fill=vote))+geom_histogram(bins=3)
+p3<-ggplot(vote,aes(perotdis_fo,fill=vote))+geom_histogram(bins=3)
+p4<-ggplot(vote,aes(clintondis,fill=vote))+geom_histogram(bins=3)
+p5<-ggplot(vote,aes(bushdis,fill=vote))+geom_histogram(bins=3)
+p6<-ggplot(vote,aes(perotdis,fill=vote))+geom_histogram(bins=3)
+plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
+# !!fix legend print and axis descriptions, also colours
+```
+___INSERT___
