@@ -1,6 +1,6 @@
 ---
 title: "1992 U.S. Presidential election"
-author: "Ali Tarek Maher Ibrahim Seada and Paul Lovis Maximilian Trüstedt"
+author: "Ali Tarek Maher Ibrahim Ali Seada and Paul Lovis Maximilian Trüstedt"
 date: "24 6 2021"
 output: pdf_document
 ---
@@ -15,10 +15,13 @@ library(pacman)
 p_load(ggplot2,   # reportable graphs 
        cowplot,   # arranges ggplot graphs nicely
        stargazer, # nice tables
-       glmnet,    # for regularization (lasso, ridge, elastic net)
+       glmnet, # for regularization (lasso, ridge, elastic net)
+       caret,       #  splitting the data and more
+       rpart,       #  building decision trees 
+       rpart.plot,
        pROC)      # ROC AUC
 rm(list=ls())
-vote<-read.csv("vote92.csv")
+vote<-read.csv("vote92.csv", sep = ",", header = T,stringsAsFactors = T)
 str(vote)
 summary(vote)
 # ??remove cowplot, stargazer & pROC
@@ -26,6 +29,7 @@ summary(vote)
 
 ## Preprocess the data, preparing it for the modeling
 ```{r}
+vote$vote_num <- as.numeric(vote$vote)
 vote$dem<-as.factor(vote$dem)
 vote$rep<-as.factor(vote$rep)
 vote$female<-as.factor(vote$female)
@@ -51,16 +55,13 @@ table(vote$dem)
 table(vote$rep)
 table(vote$female)
 table(vote$persfinance)
-table(vote$natlecon) # ??leave fusion of 0 and 1, technically sparse
+table(vote$natlecon)
 vote$natlecon[vote$natlecon==1]<-0
 vote$natlecon[vote$natlecon==-1]<-1
 vote$natlecon=droplevels(vote$natlecon)
 table(vote$natlecon)
 ```
-DEF X,O
-X The categorical variables are simplified enough and don't need anything else to be done to them.
-OR IF UPDATE LEFT
-O We leave everything as is except for natlecon which has a sparse class regarding the level 1.
+We leave everything as is except for natlecon which has a sparse class regarding the level 1.
 As solution we combine 0 and 1 as the level 0, meaning national economic conditions have gotten better or stayed the same over the last 12 months.
 Level -1 gets changed to 1 as well which now means that conditions have gotten better.
 The change from -1 to 1 is executed just because it is more common to have levels 0 and 1 instead of 0 and -1.
@@ -99,9 +100,6 @@ plot_grid(tp1,tp2,ncol=2)
 
 # !!make this shit beautiful
 # !!reduce the outlier fixes with function
-# ??passable results
-# ??no skewed right
-# ??do we actually need to fix outliers for the squared differences
 ```
 There are a few outliers in the variables clintondis, bushdis and perotdis. We fix those outliers and save the fixed data in the variables called [original_var_name]_fo. The ending "fo" is derived from "fixed outliers".
 
@@ -137,6 +135,11 @@ plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
 ```
 ___INSERT___
 
+```{r}
+str(vote)
+```
+
+
 ## Building the models
 ```{r}
 # splitting the data into train and test
@@ -153,7 +156,7 @@ y.test  <- vote.test$vote_num
 
 # X - a matrix with features/predictors 
 features <- c('dem','rep','female','persfinance','natlecon', 
-              'clintondis', 'bushdis','perotdis')
+              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID')
 
 
 #model.matrix( ~ ., data = scoring.train[, features])
@@ -217,7 +220,7 @@ y.predlog_r1 <-  predict(log_r1,    newx = X.test,
 #only catagorical 
 
 log1 <- glm(vote_num ~  dem + rep + female + persfinance + 
-              natlecon + clintondis + persfinance + perotdis,
+              natlecon + clintondis_fo + persfinance + perotdis_fo +bushdis_fo,
            data = vote)
 #both
 log2 <- glm(vote_num ~ dem + rep + female +persfinance +
@@ -225,8 +228,8 @@ log2 <- glm(vote_num ~ dem + rep + female +persfinance +
            data = vote)
 
 #only continous
-log3 <- glm(vote_num ~ clintondis + bushdis +
-              perotdis,
+log3 <- glm(vote_num ~ clintondis_fo + bushdis_fo +
+              perotdis_fo,
            data = vote)
 
 
@@ -234,6 +237,33 @@ pred.log1 <- predict(log1, vote, type = "response")
 pred.log2 <- predict(log2, vote, type = "response")
 pred.log3 <- predict(log3, vote, type = "response")
 ```
+
+```{r}
+
+set.seed(7)
+train.Index <- caret::createDataPartition(vote$vote, p = 0.7, list = F)
+vote.train <- vote[ train.Index,]
+vote.test  <- vote[-train.Index,]
+
+# features to be used for model training   
+features <- c('vote', 'dem','rep','female','persfinance','natlecon', 
+              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID') 
+
+# ----- Fitting a model ------ 
+# Training classification decision tree
+dt <- rpart(vote ~ ., 
+            data = vote.train[,features], 
+            method = "class",   #cause we have a classification problem
+            parms = list(split = "information"),  # the splitting index 
+            model = T) 
+
+# ----- Deriving Predictions ------ 
+# Predicting the instance of surviving
+# first column  - probability of 0 for each observation
+# second column - probability of 1
+pred.dt <- predict(dt, newdata = vote.test, type = "prob")[, 2]
+```
+
 
 ## Predictions
 
@@ -262,5 +292,28 @@ Accuracy <- function(pred, real, threshold = 0.5){
 
 (BS.logL1 <- sqrt(mean((y.test - y.predlog_l1)^2)))
 (BS.logL2 <- sqrt(mean((y.test - y.predlog_r1)^2)))
+```
+
+```{r}
+# ----- Evaluating Prediction Quality -----
+# Calculate performance with AUC and RMSE
+auc(vote.test$vote_num, pred.dt)
+( rmse <- sqrt(mean((vote.test$vote_num - pred.dt)^2)) )
+Accuracy(pred=pred.dt, real=vote.test$vote_num)
+
+# Naive Classifier
+baseline_probability <- sum(vote.train$vote_num == 1)/nrow(vote.train)
+pred.baseline <- rep(baseline_probability, nrow(vote.test))
+
+auc(vote.test$vote_num, pred.baseline)
+( rmse <- sqrt(mean((vote.test$vote_num - pred.baseline)^2)) )
+Accuracy(pred=pred.baseline, real=vote.test$vote_num)
+```
+```{r DT visual}
+# Visualizing the results from "dt" using the prp() function
+# default plot
+prp(dt)
+# prints the percentage of observations and class probabilities in each node
+prp(dt, extra = 106, border.col = 0, box.palette="auto") 
 
 ```
