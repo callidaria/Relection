@@ -1,8 +1,8 @@
 ---
 title: "1992 U.S. Presidential election"
-author: "Ali Seada and Lovis Trüstedt"
+author: "Ali Tarek Maher Ibrahim Ali Seada and Paul Lovis Maximilian Trüstedt"
 date: "24 6 2021"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
@@ -10,111 +10,366 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Read the data into R environment
-
-```{r}
+```{r,echo=FALSE}
 library(pacman)
 p_load(ggplot2,   # reportable graphs 
        cowplot,   # arranges ggplot graphs nicely
-       stargazer, # nice tables
        glmnet,    # for regularization (lasso, ridge, elastic net)
+       caret,     #  splitting the data and more
+       rpart,     #  building decision trees 
+       rpart.plot,
        pROC)      # ROC AUC
-```
-
-```{r}
-vote <- read.csv("vote92.csv", sep = ",", header = T,stringsAsFactors = T)
-```
-
-```{r}
+rm(list=ls())
+vote<-read.csv("vote92.csv",sep=",",header=T,stringsAsFactors=T)
 str(vote)
-
-vote$dem <-as.factor(vote$dem)
-vote$rep <-as.factor(vote$rep)
-vote$female <-as.factor(vote$female)
-vote$persfinance <-as.factor(vote$persfinance)
-vote$natlecon <-as.factor(vote$natlecon)
-# ??should be numeric by definition in doc
-# ??X required in previous HAs
-
-str(vote)
+summary(vote)
 ```
-
-I decided to change some of the numeric variables to Factors. Because it makes more sense to have them as factors than as numeric variables.
+This data set is about the 1992 USA presidential elections.
+In the data set we have 909 rows/observations with 10 variables.
+We only have 1 Factor, vote that has the levels Bush, Clinton and Perot.
+This determines what candidate the respondent voted for in the 92 election. \
+There are also 5 integer variables: dem, rep, female, persfinance and natlecon.
+The first two are 1 if the respondent identified with the democratic (dem) or the republican (rep) party.
+The variable female is 1 if the voter in the data set was female.
+While persfinance describes the change in personal wealth of the voter, natlecon is how the voter viewed the change in the national economy.
+Those variables are -1 if there was a negative change, 0 if there was no change and 1 if the financial or economic change was conceived as positive. \
+The rest of the variables (which are 3) are numeric: clintondis, bushdis and perotdis.
+Those determine the squared ideological distance of the respondent from the respective party.
 
 ## Preprocess the data, preparing it for the modeling
+```{r,echo=FALSE}
+vote$vote_num<-as.numeric(vote$vote)
+vote$dem<-as.factor(vote$dem)
+vote$rep<-as.factor(vote$rep)
+vote$female<-as.factor(vote$female)
+vote$persfinance<-as.factor(vote$persfinance)
+vote$natlecon<-as.factor(vote$natlecon)
+vote$polID<-as.factor((as.numeric(vote$dem)-1)+(as.numeric(vote$rep)*2-1))
+str(vote)
+```
 
-- Missing values
-
+- treat missing values
 ```{r}
-# find explicit NAs
 colSums(is.na(vote))
-# find implicit NAs through empty cells
-apply(vote, 2, function(g) sum(g == "")) # !!impute all empty to NA then print all NA
 ```
 
-We don't have any missing Values in this data set
+- handle sparse classes of categorical predictors
 
-* handle sparse classes of categorical variables
-
-```{r}
-table(vote$vote) # §§fixed the forced print syntax
-table(vote$dem)
-table(vote$rep) 
-table(vote$female) 
-table(vote$persfinance) 
-table(vote$natlecon)
+```{r,echo=FALSE}
+p1<-ggplot(vote,aes(vote))+geom_bar(fill=c("red","blue","purple"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p2<-ggplot(vote,aes(dem))+geom_bar(fill=c("green","blue"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p3<-ggplot(vote,aes(rep))+geom_bar(fill=c("green","red"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p4<-ggplot(vote,aes(female))+geom_bar(fill=c("darkblue","pink"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p5<-ggplot(vote,aes(persfinance))+geom_bar(fill=c("red","darkblue","green"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p6<-ggplot(vote,aes(natlecon))+geom_bar(fill=c("red","darkblue","green"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
+vote$natlecon[vote$natlecon==1]<-0
+vote$natlecon[vote$natlecon==-1]<-1
+vote$natlecon=droplevels(vote$natlecon)
+ggplot(vote,aes(natlecon))+geom_bar(fill=c("yellow","purple"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
 ```
 
-The categorical variables are simplified enough and don't need anything else to be done to it.
+- take care of outliers, treat the skewed distributions and create new features
 
-* take care of outliers and treating the skewed distribution and creating new features 
-
-```{r}
-zScores <- function(var){
-    mu <- mean(var)
-    sd <-  sd(var)
-    scores <- (var - mu)/sd
-    return(scores)
+```{r,echo=FALSE}
+zScores<-function(var) {
+    mu<-mean(var)
+    sd<-sd(var)
+    return((var-mu)/sd)
 }
+
+# treating clintondis
+tp1<-ggplot(vote,aes(clintondis))+geom_boxplot(fill="blue",alpha=.75)+coord_flip()
+vote$clintondis_fo<-vote$clintondis
+vote$clintondis_fo[zScores(vote$clintondis_fo)>1]<-
+    round(mean(vote$clintondis_fo))+sd(vote$clintondis_fo)
+tp2<-ggplot(vote,aes(clintondis_fo))+geom_boxplot(fill="darkblue",alpha=.9)+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+
+# treating bushdis
+tp1<-ggplot(vote,aes(bushdis))+geom_boxplot(fill="red",alpha=.75)+coord_flip()
+vote$bushdis_fo<-vote$bushdis
+vote$bushdis_fo[zScores(vote$bushdis_fo)>2]<-
+    round(mean(vote$bushdis_fo))+2*sd(vote$bushdis_fo)
+tp2<-ggplot(vote,aes(bushdis_fo))+geom_boxplot(fill="darkred",alpha=.9)+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+
+# treating perotdis
+tp1<-ggplot(vote,aes(perotdis))+geom_boxplot(fill="violet",alpha=.75)+coord_flip()
+vote$perotdis_fo<-vote$perotdis
+vote$perotdis_fo[zScores(vote$perotdis_fo)>1]<-
+    round(mean(vote$perotdis_fo))+sd(vote$perotdis_fo)
+tp2<-ggplot(vote,aes(perotdis_fo))+geom_boxplot(fill="purple",alpha=.9)+coord_flip()
+plot_grid(tp1,tp2,ncol=2)
+```
+In the beginning we decided to change some of the numeric variables to factors, because it makes more sense to have them as categorical than as numeric variables.
+Also this way, we can see, that there are no problems with the categorical variables regarding wrong values, because all provided levels are described by the given data set definition.
+Additionally we created a categorical variable called polID to summarize which political party the respondent is identifying himself with.
+Afterwards we decided to start looking at the missing values and treating them, but we couldn’t find any explicit or implicit missing values.
+Looking at the categorical values we only decided to change natlecon since 1 was a sparse class.
+We combined 0 and 1 as the level 0, meaning national economic conditions have gotten better or stayed the same over the last 12 months.
+Level -1 was changed to 1 as well which now means that conditions have gotten better.
+The change from -1 to 1 is executed just because it is more common to have levels 0 and 1 instead of 0 and -1. \
+ \
+Next step was taking care of the outliers, treating skewed distributions and creating new features.
+There are a few outliers in the variables clintondis, bushdis and perotdis.
+We fixed those outliers and saved the fixed data within variables called [original_var_name]_fo.
+The ending "fo" is derived from "fixed outliers".
+Moving forward we didn’t find any other problems regarding the data set so we decided to move on.
+
+- explore the relationships between predictors and the target
+
+```{r,echo=FALSE}
+ggplot(vote,aes(vote,fill=polID))+geom_bar()+
+  scale_fill_manual(labels=c("Independent","Democrats","Republicans"),
+                    values=c("#E69F00","darkblue","darkred"))
+```
+
+```{r,echo=FALSE}
+ggplot(vote,aes(vote,fill=female))+geom_bar(position="dodge")+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5,
+            position=position_dodge(.9))+
+  scale_fill_manual(labels=c("Male","Female"),values=c("lightblue","pink"))
+```
+
+```{r,echo=FALSE}
+p1<-ggplot(vote,aes(vote,fill=persfinance))+geom_bar()+
+  scale_fill_manual(labels=c("negative change","no change","positive change"),
+                    values=c("red","darkblue","green"))
+p2<-ggplot(vote,aes(vote,fill=natlecon))+geom_bar()+
+  scale_fill_manual(labels=c("none or positive","negative change"),
+                    values=c("blue","red"))
+plot_grid(p1,p2,ncol=2)
+```
+
+```{r,echo=FALSE}
+p1<-ggplot(vote,aes(clintondis_fo,fill=vote))+
+  geom_histogram(bins=3)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10))
+p2<-ggplot(vote,aes(bushdis_fo,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+p3<-ggplot(vote,aes(perotdis_fo,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+p4<-ggplot(vote,aes(clintondis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10,15,20))
+p5<-ggplot(vote,aes(bushdis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10,15,20))
+p6<-ggplot(vote,aes(perotdis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+legend<-get_legend(p1)
+plot_grid(p1+theme(legend.position="none"),p2,p3,legend,p4,p5,p6,ncol=4)
+```
+
+Next, we decided to look at the relationships between the predictors and the target, here our target variable being vote.
+Looking at the votes for Perot, most prominently visible is, that half of his votes came from republican voters, which Bush lost.
+Also Bush got the least votes from voters who didn't clearly align with either the democratic or the republican party.
+Those undecided voters, that didn't vote for Bush about equally voted for Clinton and Perot.
+Not only did more of them vote for Clinton instead of Bush, but also more democrats voted for Clinton than republicans for Bush.
+To top it off, even more republicans voted for the democratic as for the republican party, though it must be noted that more respondents reported aligning with the democratic party in the first place. \
+ \
+Both Bush and Perot had significantly more male than female voters, though that could also be, because more respondents in this data set are male than female.
+Although on the one hand Bush and Perot had more male than female voters, Clinton on the other hand received more female than male voters regardless of the gender bias of the data set. \
+ \
+Most of the people, who felt that their own financial situation had worsened, voted for Clinton, while people that had a positive change regarding their personal finances voted for Bush.
+While even most of those, who felt no personal financial change voted for Clinton, more who had a change for the worst voted for Clinton than for Bush and Perot combined.
+Perots source of votes are mostly balanced regarding the respondents personal financial situation, but those who felt like the national economy had gotten worse, were much more likely to vote for Perot, than those who felt no change or an increase in national wealth.
+That being said, those who felt the national economy was getting worse, seem to overwhelmingly have voted for Clinton.
+Even despite the mentioned bias regarding Perot, Clinton received about as much votes from those who felt a negative change in the national economy as Perot and Bush together, but more people, that were comfortable with the change of the national economy voted for Bush, than for Clinton and Perot combined.  \
+ \
+Those who ideologically identified themselves most with the candidate of the democratic party unsurprisingly mostly voted for Clinton.
+Moving away from the optimal ideological alignment of the respondent with Clinton, more and more voters mostly chose Bush over Clinton, as well as Perot. \
+Voters, who ideologically identified more with the candidate of the republican party did not vote as decisively for Bush as the democrats for Clinton.
+Not only did more voters, aligning with Bush, vote for Perot but also much more for Clinton than the voters, aligning with Clinton, for Bush.
+Again, moving away from the ideological alignment of the voters with Bush, this trend is much more prominently visible, voters absolute decisively voting Clinton instead of anyone else.
+But recognizing those majorities, we have to keep in mind that most of the respondents as a whole did vote Clinton, so majorities in favour of Clinton are to be expected. \
+The same trend is visible in the histogram regarding ideological alignment with Perot.
+While those, who aligned more with Perots ideology tended to vote Bush a little more often than Clinton, moving away from the ideological alignment we again see a strong tendency towards Clinton.
+The small trend towards Bush by voters aligning with Perot is not surprising, because Perot later was considered a republican, but in 92 disagreed with Bush on some things, most prominently regarding war among other topics.
+But even those who align with Perot the most, did not end up voting for Perot. That is because a vote for Perot would not determine presidency, because America has a two-party voting system in which only two presidential candidates can be voted for and Perot in 92 was a third party candidate, that couldn't be elected president.
+
+\pagebreak
+
+## Building the models
+
+```{r,echo=FALSE}
+# splitting the data into train and test
+set.seed(777)
+train.Index<-sample(1:nrow(vote),round(0.7*nrow(vote)),replace=F)
+
+# creating the train and test sets using train.Index
+vote.train<-vote[train.Index,]
+vote.test<-vote[-train.Index,]
+  
+# creating x and y for model training
+# y - a target vector
+y.train<-vote.train$vote_num
+y.test<-vote.test$vote_num
+
+# X - a matrix with features/predictors
+features<-c('dem','rep','female','persfinance','natlecon','clintondis_fo',
+            'bushdis_fo','perotdis_fo','polID')
+
+#model.matrix( ~ ., data = scoring.train[, features])
+X.train<-model.matrix(~ . -1, data=vote.train[,features]) # ??discrepancy between vote. & y.
+X.test<-model.matrix(~ . -1, data=vote.test[,features])
+```
+
+1. Lasso
+
+```{r,echo=FALSE}
+log_l1<-glmnet(X.train,y.train,alpha=1)
+
+plot(log_l1, xvar = "lambda")
+legend("bottomright", lwd = 1, col = 1:6, legend = colnames(X.train), cex = .4)
+
+plot(y = log_l1$dev.ratio, 
+     x = log_l1$lambda,
+     xlab = "lambda",
+     ylab = "R-squared")
+
+
+# selecting the optimal lambda
+set.seed(77)
+log_l1_cv <- cv.glmnet(X.train, y.train, alpha = 1, type.measure = "class", 
+                       lambda = 10^seq(-5, 1, length.out = 100) , nfolds = 10)
+
+
+
+y.predlog_l1 <-  predict(log_l1, newx = X.test, 
+                         type = "response", s = log_l1_cv$lambda.min)
+```
+
+2. L1-nrom
+
+```{r,echo=FALSE}
+# Setting alpha = 0 implements ridge regression
+log_r1 <- glmnet(X.train, y.train, alpha = 0)
+
+
+plot(log_r1, xvar = "lambda")
+legend("bottomright", lwd = 1, col = 1:6, legend = colnames(X.test), cex = .3)
+
+
+plot(y = log_r1$dev.ratio, 
+     x = log_r1$lambda,
+     xlab = "lambda",
+     ylab = "R-squared")
+
+# selecting the optimal lambda
+set.seed(77)
+log_r1_cv <- cv.glmnet(X.train, y.train, alpha = 0, type.measure = "class",
+                       lambda = 10^seq(-5, 1, length.out = 100),
+                        nfolds = 10)
+
+y.predlog_r1 <-  predict(log_r1,    newx = X.test,
+                         type = "response", s = log_r1_cv$lambda.min)
+
+```
+3. Logistic regressions
+
+```{r}
+# fixed variables
+log1 <- glm(vote_num ~ dem + rep + female + persfinance + 
+              natlecon + clintondis_fo + perotdis_fo + bushdis_fo,
+           data = vote)
+
+# original variables
+log2 <- glm(vote_num ~ dem + rep + female + persfinance + 
+              natlecon + clintondis + perotdis + bushdis,
+           data = vote)
+
+# both fixed and original variables
+log3 <- glm(vote_num ~ dem + rep + female + persfinance + 
+              natlecon + clintondis + perotdis + bushdis + clintondis_fo +
+              perotdis_fo + bushdis_fo,
+           data = vote)
+
+pred.log1 <- predict(log1, vote, type = "response")
+pred.log2 <- predict(log2, vote, type = "response")
+pred.log3 <- predict(log3, vote, type = "response")
+```
+
+```{r,echo=FALSE}
+
+set.seed(7)
+train.Index <- caret::createDataPartition(vote$vote, p = 0.7, list = F)
+vote.train <- vote[ train.Index,]
+vote.test  <- vote[-train.Index,]
+
+# features to be used for model training   
+features <- c('vote', 'dem','rep','female','persfinance','natlecon', 
+              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID')
+
+# ----- Fitting a model ------ 
+# Training classification decision tree
+dt <- rpart(vote ~ ., 
+            data = vote.train[,features], 
+            method = "class",   #cause we have a classification problem
+            parms = list(split = "information"),  # the splitting index 
+            model = T) 
+
+# ----- Deriving Predictions ------ 
+
+pred.dt <- predict(dt, newdata = vote.test, type = "prob")[, 2]
+
+# Visualizing the results from "dt" using the prp() function
+# prints the percentage of observations and class probabilities in each node
+prp(dt, extra = 106, border.col = 0, box.palette="auto") 
+
+```
+ \
+Naturally after the pre-processing we needed to build some models. So we decided to build 3 types of models Lasso and ridge models, logistic regression models, and decision trees. For our lasso and ridge models we needed to spilt the data set into train (70%) and test (30%) data and we used the features we pre-processed in the previous task (dem , rep , famle, persfinance, natlecon, clintondis_fo, bushdis_fo, petrodis_fo). We then use those train and test sets to train and test our lasso and ridge models. Afterwards we created a couple of logistic regression models. 2 of those models either had categorical variables only or continuous ones only. 1 had both the continuous and the categorical variables that have been processed. The finale 1 had the continuous variables that have not been processed (those without “fo” at the end) and the categorical values. All of our logistic regression models had the same target value which was vote_num. Vote_num is the variable vote that is a numeric instead of a factor. For building a decision tree we also needed to split the data into train and test sets. We then defined some future for the tree to be trained with (vote, dem, rep, female, persfinance, natlecon, clintondis_fo, bushdis_fo, petrodis_fo).
+
+## Predictions
+
+```{r}
+Accuracy<-function(pred,real,threshold=.5) {
+  predClass<-ifelse(pred>threshold,1,0)
+  return(sum(predClass==real)/length(real))
+}
+
+# Accuracy
+(acc1 <- Accuracy(pred = pred.log1, real = vote$vote_num))
+(acc2 <- Accuracy(pred = pred.log2, real = vote$vote_num))
+(acc3 <- Accuracy(pred = pred.log3, real = vote$vote_num))
+
+# Brier Score
+(BS.log1 <- sqrt(mean((vote$vote_num - pred.log1)^2)))
+(BS.log2 <- sqrt(mean((vote$vote_num- pred.log2)^2)))
+(BS.log3 <- sqrt(mean((vote$vote_num - pred.log3)^2)))
 ```
 
 ```{r}
-# inspecting the distribution of the variable
-ggplot(vote, aes((clintondis))) +
-  geom_density(na.rm = T)
+(accLasso <- Accuracy(pred = y.predlog_l1, real = y.test))
+(accLRidge <- Accuracy(pred = y.predlog_r1, real = y.test))
 
-# inspecting zScores and outliers
-z_income <-zScores(vote$clintondis)
-
-z_income[z_income > 10]
-
-
-# imputing outliers
-vote$clintondis_tr <- vote$clintondis
-vote$clintondis_tr[z_income > 10] <- mean(vote$clintondis_tr, na.rm=T) + 
-  10*sd(vote$clintondis_tr)
-
-# creating the log transformation
-vote$clintondis_tr <- (vote$clintondis_tr)
-
-# inspecting distribution of the log transformation
-ggplot(vote, aes((clintondis_tr))) +
-  geom_density(na.rm = T)
+(BS.logL1 <- sqrt(mean((y.test - y.predlog_l1)^2)))
+(BS.logL2 <- sqrt(mean((y.test - y.predlog_r1)^2)))
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```{r}
+# ----- Evaluating Prediction Quality -----
+# Calculate performance with AUC and RMSE
+auc(vote.test$vote_num, pred.dt)
+( rmse <- sqrt(mean((vote.test$vote_num - pred.dt)^2)) )
+Accuracy(pred=pred.dt, real=vote.test$vote_num)
+```
+Since we created the models we might as well Evaluate them. We will start by looking at our logistic regression models all of them have the same accuracy! So we need to look at the Brier score. There we can see that log3 which is the logistic model with both the processed and original variables is the best one out of all of them.
+While comparing the lasso and ridge model we hit the same road block. The accuracy score for both of them is the same. Which means we need to look at the brier score, which would mean that the ridge model is the slightly better model.
+Now when it comes to comparing both the ridge and the log3 model we can say that the best model out of both of them is the log3 model since the brier score of the log3 is smaller than the score of the ridge one. Meaning that the log3 model is more accurate than the ridge model. \
+ \
+The only challenge that we really faced was making the decision tree. For some reason the code we had written didn’t seem to work for us at first. But after countless attempts we were able to solve it. So the both of us believe that we did quite well.
