@@ -106,14 +106,22 @@ There are a few outliers in the variables clintondis, bushdis and perotdis. We f
 - explore the relationships between predictors and the target
 ```{r}
 ggplot(vote,aes(vote,fill=polID))+geom_bar() # !!fix colours and descriptions
+# ??maybe plot respective predictions by alignment next to actual vote
 # !!add percentiles to those splitted barplots somehow
+# !!show amounts
 ```
-___INSERT___
+Looking at the votes for Perot, most prominently visible is, that half of his votes came from republican voters, which Bush lost.
+Also Bush got least votes from voters who didn't clearly align with either the democratic or the republican party.
+Those undecided who didn't vote for Bush about equally voted for Clinton and Perot.
+Not only did more undecided voters vote for Clinton instead of Bush, but also more democrats voted for Clinton than republicans for Bush.
+To top it off, even more republicans voted for the democratic as for the republican party.
+Though it must be noted that more respondents reported aligning with the democratic party in the first place.
 
 ```{r}
-ggplot(vote,aes(vote,fill=female))+geom_bar()
+ggplot(vote,aes(vote,fill=female))+geom_bar() # !!show percentages
 ```
-___INSERT___
+Both Bush and Perot had significantly more male than female voters, though that could also because more respondents in this data set are male than female.
+Regardless of the imbalance of genders among the respondents though, Clinton had not only the highest percentage of female voters but also received about balanced votes by gender.
 
 ```{r}
 p1<-ggplot(vote,aes(vote,fill=persfinance))+geom_bar()
@@ -121,7 +129,11 @@ p2<-ggplot(vote,aes(vote,fill=natlecon))+geom_bar()
 plot_grid(p1,p2,ncol=2)
 # !!fix repeating barplot by creating a more diverse visual representation
 ```
-___INSERT___
+Most of the people, who felt like their own financial situation had worsened, voted for Clinton, while people that had a positive change regarding their personal finances voted for Bush.
+While even most of those, who felt no personal financial change voted for Clinton, more who had a change for the worst voted for Clinton than for Bush and Perot combined.
+Perots source of votes are mostly balanced regarding the respondents personal financial situation, but those who felt like the national economy has gotten worse, were much more likely to vote for Perot, than those who felt no change or an increase in national wealth.
+That being said, those who felt the national economy was getting worse, seem to overwhelmingly have voted for Clinton.
+Even despite the mentioned bias regarding Perot, Clinton received about as much votes from those who felt a negative change in the national economy as Perot and Bush together, but more people, that were comfortable with the change of the national economy voted for Bush, than for Clinton and Perot combined.
 
 ```{r}
 p1<-ggplot(vote,aes(clintondis_fo,fill=vote))+geom_histogram(bins=3)
@@ -133,43 +145,46 @@ p6<-ggplot(vote,aes(perotdis,fill=vote))+geom_histogram(bins=3)
 plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
 # !!fix legend print and axis descriptions, also colours
 ```
-___INSERT___
-
-```{r}
-str(vote)
-```
-
+Those who ideologically identify themselves most with the candidate of the democratic party unsurprisingly overwhelmingly voted for Clinton.
+Moving away from the optimal ideological alignment of the respondent with Clinton, more and more voters mostly chose Bush over Clinton, as well as Perot. \
+Voters, who ideologically identify more with the candidate of the republican party did not vote as decisively for Bush as democrats for Clinton.
+Not only did more voters, aligning with Bush, vote for Perot but also much more for Clinton than the voters, aligning with Clinton, for Bush.
+Again, moving away from the ideological alignment of the voters with Bush, this trend is much more visible, voters absolute decisively voting Clinton instead of anyone else.
+But recognizing those majorities, we have to keep in mind that most of the respondents as a whole did vote Clinton, so majorities in favour of Clinton are to be expected. \
+The same trend is visible in the histogram regarding ideological alignment with Perot.
+While those, who align more with Perots ideology tend to vote Bush a little more often than Clinton, moving away from ideological alignment we again see a strong tendency towards Clinton.
+The small trend towards Bush by voters aligning with Perot is not surprising, because Perot later was considered a republican, but in 92 disagreed with Bush on some things, most prominently regarding war among other topics.
+But even those who align with Perot the most, did not end up voting for Perot.
+This could be because a vote for Perot would not determine presidency, because in the american voting system only two presidential candidates can be voted for and Perot in 92 was a third party candidate, that couldn't be elected president.
+!! factcheck some of that
 
 ## Building the models
 ```{r}
 # splitting the data into train and test
 set.seed(777)
-train.Index <-  sample(1:nrow(vote), round(0.7*nrow(vote)), replace = F)
-# creating the train and test sets using train.Index 
-vote.train <- vote[train.Index,]
-vote.test  <- vote[-train.Index,]
+train.Index<-sample(1:nrow(vote),round(0.7*nrow(vote)),replace=F)
+
+# creating the train and test sets using train.Index
+vote.train<-vote[train.Index,]
+vote.test<-vote[-train.Index,]
   
 # creating x and y for model training
 # y - a target vector
-y.train <- vote.train$vote_num
-y.test  <- vote.test$vote_num
+y.train<-vote.train$vote_num
+y.test<-vote.test$vote_num
 
 # X - a matrix with features/predictors 
-features <- c('dem','rep','female','persfinance','natlecon', 
-              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID')
-
+features<-c('dem','rep','female','persfinance','natlecon','clintondis_fo',
+            'bushdis_fo','perotdis_fo','polID') # !!set this with colnames
 
 #model.matrix( ~ ., data = scoring.train[, features])
-X.train <- model.matrix( ~ . -1, data = vote.train[, features])
-X.test  <- model.matrix( ~ . -1, data = vote.test[, features])
-
+X.train<-model.matrix(~ . -1, data=vote.train[,features]) # ??discrepancy between vote. & y.
+X.test<-model.matrix(~ . -1, data=vote.test[,features])
 ```
 
-
 1.  L1-nrom / Lasso
-
 ```{r}
-log_l1 <- glmnet(X.train, y.train, alpha = 1)
+log_l1<-glmnet(X.train,y.train,alpha=1)
 
 plot(log_l1, xvar = "lambda")
 legend("bottomright", lwd = 1, col = 1:6, legend = colnames(X.train), cex = .4)
@@ -207,11 +222,11 @@ plot(y = log_r1$dev.ratio,
 
 # selecting the optimal lambda
 set.seed(77)
-log_r1_cv <- cv.glmnet(X.train, y.train, alpha = 0, type.measure = "class", 
-                       lambda = 10^seq(-5, 1, length.out = 100), 
+log_r1_cv <- cv.glmnet(X.train, y.train, alpha = 0, type.measure = "class",
+                       lambda = 10^seq(-5, 1, length.out = 100),
                         nfolds = 10)
 
-y.predlog_r1 <-  predict(log_r1,    newx = X.test, 
+y.predlog_r1 <-  predict(log_r1,    newx = X.test,
                          type = "response", s = log_r1_cv$lambda.min)
 
 ```
@@ -227,7 +242,7 @@ log2 <- glm(vote_num ~ dem + rep + female +persfinance +
           natlecon ,
            data = vote)
 
-#only continous
+#only continuous
 log3 <- glm(vote_num ~ clintondis_fo + bushdis_fo +
               perotdis_fo,
            data = vote)
@@ -247,7 +262,7 @@ vote.test  <- vote[-train.Index,]
 
 # features to be used for model training   
 features <- c('vote', 'dem','rep','female','persfinance','natlecon', 
-              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID') 
+              'clintondis_fo', 'bushdis_fo','perotdis_fo','polID')
 
 # ----- Fitting a model ------ 
 # Training classification decision tree
@@ -264,26 +279,22 @@ dt <- rpart(vote ~ .,
 pred.dt <- predict(dt, newdata = vote.test, type = "prob")[, 2]
 ```
 
-
 ## Predictions
-
 ```{r}
-Accuracy <- function(pred, real, threshold = 0.5){
-  predClass <-  ifelse(pred > threshold, 1, 0)
-  acc <- sum(predClass == real) / length(real)
-  return(acc)
+Accuracy<-function(pred,real,threshold=.5) {
+  predClass<-ifelse(pred>threshold,1,0)
+  return(sum(predClass==real)/length(real))
 }
-```
 
-```{r}
+# Accuracy
 (acc1 <- Accuracy(pred = pred.log1, real = vote$vote_num))
 (acc2 <- Accuracy(pred = pred.log2, real = vote$vote_num))
 (acc3 <- Accuracy(pred = pred.log3, real = vote$vote_num))
+
 # Brier Score
 (BS.log1 <- sqrt(mean((vote$vote_num - pred.log1)^2)))
 (BS.log2 <- sqrt(mean((vote$vote_num- pred.log2)^2)))
 (BS.log3 <- sqrt(mean((vote$vote_num - pred.log3)^2)))
-
 ```
 
 ```{r}
