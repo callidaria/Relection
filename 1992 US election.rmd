@@ -15,21 +15,22 @@ library(pacman)
 p_load(ggplot2,   # reportable graphs 
        cowplot,   # arranges ggplot graphs nicely
        stargazer, # nice tables
-       glmnet, # for regularization (lasso, ridge, elastic net)
-       caret,       #  splitting the data and more
-       rpart,       #  building decision trees 
+       glmnet,    # for regularization (lasso, ridge, elastic net)
+       caret,     #  splitting the data and more
+       rpart,     #  building decision trees 
        rpart.plot,
        pROC)      # ROC AUC
 rm(list=ls())
-vote<-read.csv("vote92.csv", sep = ",", header = T,stringsAsFactors = T)
+vote<-read.csv("vote92.csv",sep=",",header=T,stringsAsFactors=T)
 str(vote)
 summary(vote)
 # ??remove cowplot, stargazer & pROC
 ```
+___INSERT___ (description of dataset)
 
 ## Preprocess the data, preparing it for the modeling
 ```{r}
-vote$vote_num <- as.numeric(vote$vote)
+vote$vote_num<-as.numeric(vote$vote)
 vote$dem<-as.factor(vote$dem)
 vote$rep<-as.factor(vote$rep)
 vote$female<-as.factor(vote$female)
@@ -50,16 +51,24 @@ There are no missing values in this data set. No NAs, as well as data, that coul
 
 - handle sparse classes of categorical predictors
 ```{r}
-table(vote$vote) # !!make these tables pretty (bar plot coloured)
-table(vote$dem)
-table(vote$rep)
-table(vote$female)
-table(vote$persfinance)
-table(vote$natlecon)
+p1<-ggplot(vote,aes(vote))+geom_bar(fill=c("red","blue","purple"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p2<-ggplot(vote,aes(dem))+geom_bar(fill=c("green","blue"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p3<-ggplot(vote,aes(rep))+geom_bar(fill=c("green","red"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p4<-ggplot(vote,aes(female))+geom_bar(fill=c("darkblue","pink"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p5<-ggplot(vote,aes(persfinance))+geom_bar(fill=c("red","darkblue","green"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+p6<-ggplot(vote,aes(natlecon))+geom_bar(fill=c("red","darkblue","green"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
+plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
 vote$natlecon[vote$natlecon==1]<-0
 vote$natlecon[vote$natlecon==-1]<-1
 vote$natlecon=droplevels(vote$natlecon)
-table(vote$natlecon)
+ggplot(vote,aes(natlecon))+geom_bar(fill=c("yellow","purple"),alpha=.75)+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5)
 ```
 We leave everything as is except for natlecon which has a sparse class regarding the level 1.
 As solution we combine 0 and 1 as the level 0, meaning national economic conditions have gotten better or stayed the same over the last 12 months.
@@ -75,40 +84,36 @@ zScores<-function(var) {
 }
 
 # treating clintondis
-tp1<-ggplot(vote,aes(clintondis))+geom_boxplot()+coord_flip()
+tp1<-ggplot(vote,aes(clintondis))+geom_boxplot(fill="blue",alpha=.75)+coord_flip()
 vote$clintondis_fo<-vote$clintondis
 vote$clintondis_fo[zScores(vote$clintondis_fo)>1]<-
     round(mean(vote$clintondis_fo))+sd(vote$clintondis_fo)
-tp2<-ggplot(vote,aes(clintondis_fo))+geom_boxplot()+coord_flip()
+tp2<-ggplot(vote,aes(clintondis_fo))+geom_boxplot(fill="darkblue",alpha=.9)+coord_flip()
 plot_grid(tp1,tp2,ncol=2)
 
 # treating bushdis
-tp1<-ggplot(vote,aes(bushdis))+geom_boxplot()+coord_flip()
+tp1<-ggplot(vote,aes(bushdis))+geom_boxplot(fill="red",alpha=.75)+coord_flip()
 vote$bushdis_fo<-vote$bushdis
 vote$bushdis_fo[zScores(vote$bushdis_fo)>2]<-
     round(mean(vote$bushdis_fo))+2*sd(vote$bushdis_fo)
-tp2<-ggplot(vote,aes(bushdis_fo))+geom_boxplot()+coord_flip()
+tp2<-ggplot(vote,aes(bushdis_fo))+geom_boxplot(fill="darkred",alpha=.9)+coord_flip()
 plot_grid(tp1,tp2,ncol=2)
 
 # treating perotdis
-tp1<-ggplot(vote,aes(perotdis))+geom_boxplot()+coord_flip()
+tp1<-ggplot(vote,aes(perotdis))+geom_boxplot(fill="violet",alpha=.75)+coord_flip()
 vote$perotdis_fo<-vote$perotdis
 vote$perotdis_fo[zScores(vote$perotdis_fo)>1]<-
     round(mean(vote$perotdis_fo))+sd(vote$perotdis_fo)
-tp2<-ggplot(vote,aes(perotdis_fo))+geom_boxplot()+coord_flip()
+tp2<-ggplot(vote,aes(perotdis_fo))+geom_boxplot(fill="purple",alpha=.9)+coord_flip()
 plot_grid(tp1,tp2,ncol=2)
-
-# !!make this shit beautiful
-# !!reduce the outlier fixes with function
 ```
 There are a few outliers in the variables clintondis, bushdis and perotdis. We fix those outliers and save the fixed data in the variables called [original_var_name]_fo. The ending "fo" is derived from "fixed outliers".
 
 - explore the relationships between predictors and the target
 ```{r}
-ggplot(vote,aes(vote,fill=polID))+geom_bar() # !!fix colours and descriptions
-# ??maybe plot respective predictions by alignment next to actual vote
-# !!add percentiles to those splitted barplots somehow
-# !!show amounts
+ggplot(vote,aes(vote,fill=polID))+geom_bar()+
+  scale_fill_manual(labels=c("Independent","Democrats","Republicans"),
+                    values=c("#E69F00","darkblue","darkred"))
 ```
 Looking at the votes for Perot, most prominently visible is, that half of his votes came from republican voters, which Bush lost.
 Also Bush got least votes from voters who didn't clearly align with either the democratic or the republican party.
@@ -118,16 +123,22 @@ To top it off, even more republicans voted for the democratic as for the republi
 Though it must be noted that more respondents reported aligning with the democratic party in the first place.
 
 ```{r}
-ggplot(vote,aes(vote,fill=female))+geom_bar() # !!show percentages
+ggplot(vote,aes(vote,fill=female))+geom_bar(position="dodge")+
+  geom_text(aes(label=..count..),stat="count",vjust=1.5,
+            position=position_dodge(.9))+
+  scale_fill_manual(labels=c("Male","Female"),values=c("lightblue","pink"))
 ```
 Both Bush and Perot had significantly more male than female voters, though that could also because more respondents in this data set are male than female.
 Regardless of the imbalance of genders among the respondents though, Clinton had not only the highest percentage of female voters but also received about balanced votes by gender.
 
 ```{r}
-p1<-ggplot(vote,aes(vote,fill=persfinance))+geom_bar()
-p2<-ggplot(vote,aes(vote,fill=natlecon))+geom_bar()
+p1<-ggplot(vote,aes(vote,fill=persfinance))+geom_bar()+
+  scale_fill_manual(labels=c("negative change","no change","positive change"),
+                    values=c("red","darkblue","green"))
+p2<-ggplot(vote,aes(vote,fill=natlecon))+geom_bar()+
+  scale_fill_manual(labels=c("none or positive","negative change"),
+                    values=c("blue","red"))
 plot_grid(p1,p2,ncol=2)
-# !!fix repeating barplot by creating a more diverse visual representation
 ```
 Most of the people, who felt like their own financial situation had worsened, voted for Clinton, while people that had a positive change regarding their personal finances voted for Bush.
 While even most of those, who felt no personal financial change voted for Clinton, more who had a change for the worst voted for Clinton than for Bush and Perot combined.
@@ -136,13 +147,29 @@ That being said, those who felt the national economy was getting worse, seem to 
 Even despite the mentioned bias regarding Perot, Clinton received about as much votes from those who felt a negative change in the national economy as Perot and Bush together, but more people, that were comfortable with the change of the national economy voted for Bush, than for Clinton and Perot combined.
 
 ```{r}
-p1<-ggplot(vote,aes(clintondis_fo,fill=vote))+geom_histogram(bins=3)
-p2<-ggplot(vote,aes(bushdis_fo,fill=vote))+geom_histogram(bins=3)
-p3<-ggplot(vote,aes(perotdis_fo,fill=vote))+geom_histogram(bins=3)
-p4<-ggplot(vote,aes(clintondis,fill=vote))+geom_histogram(bins=3)
-p5<-ggplot(vote,aes(bushdis,fill=vote))+geom_histogram(bins=3)
-p6<-ggplot(vote,aes(perotdis,fill=vote))+geom_histogram(bins=3)
-plot_grid(p1,p2,p3,p4,p5,p6,ncol=3)
+p1<-ggplot(vote,aes(clintondis_fo,fill=vote))+
+  geom_histogram(bins=3)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10))
+p2<-ggplot(vote,aes(bushdis_fo,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+p3<-ggplot(vote,aes(perotdis_fo,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+p4<-ggplot(vote,aes(clintondis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10,15,20))
+p5<-ggplot(vote,aes(bushdis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))+
+  scale_x_continuous(breaks=c(0,5,10,15,20))
+p6<-ggplot(vote,aes(perotdis,fill=vote))+
+  geom_histogram(bins=3,show.legend=FALSE)+
+  scale_fill_manual(values=c("red","blue","purple"))
+legend<-get_legend(p1)
+plot_grid(p1+theme(legend.position="none"),p2,p3,legend,p4,p5,p6,ncol=4)
 # !!fix legend print and axis descriptions, also colours
 ```
 Those who ideologically identify themselves most with the candidate of the democratic party unsurprisingly overwhelmingly voted for Clinton.
@@ -155,8 +182,7 @@ The same trend is visible in the histogram regarding ideological alignment with 
 While those, who align more with Perots ideology tend to vote Bush a little more often than Clinton, moving away from ideological alignment we again see a strong tendency towards Clinton.
 The small trend towards Bush by voters aligning with Perot is not surprising, because Perot later was considered a republican, but in 92 disagreed with Bush on some things, most prominently regarding war among other topics.
 But even those who align with Perot the most, did not end up voting for Perot.
-This could be because a vote for Perot would not determine presidency, because in the american voting system only two presidential candidates can be voted for and Perot in 92 was a third party candidate, that couldn't be elected president.
-!! factcheck some of that
+This could be because a vote for Perot would not determine who would become president, because america has a two-party political system, where only two presidential candidates can be voted for and Perot in 92 was a third party candidate, that couldn't become president.
 
 ## Building the models
 ```{r}
@@ -232,9 +258,10 @@ y.predlog_r1 <-  predict(log_r1,    newx = X.test,
 ```
 
 ```{r}
-#only both 
+# !!change to original regressions
 
-log1 <- glm(vote_num ~  dem + rep + female + persfinance + 
+#only both 
+log1 <- glm(vote_num ~ dem + rep + female + persfinance + 
               natlecon + clintondis_fo + persfinance + perotdis_fo +bushdis_fo,
            data = vote)
 #catagorical
@@ -283,7 +310,7 @@ prp(dt)
 prp(dt, extra = 106, border.col = 0, box.palette="auto") 
 
 ```
-We decided to create a few models for the data set vote. We trained a portion of the data set to create a lasso and ridge model. We also created 3 logistic regression models. 2 that only have either categorical  or continues  variables   and the other one that has a combination of both. We also trained a nother portion of the data set for our decision tree and we created it.
+We decided to create a few models for the data set vote. We trained a portion of the data set to create a lasso and ridge model. We also created 3 logistic regression models. 2 that only have either categorical  or continues  variables   and the other one that has a combination of both. We also trained another portion of the data set for our decision tree and we created it.
 
 ## Predictions
 ```{r}
@@ -329,4 +356,3 @@ auc(vote.test$vote_num, pred.baseline)
 Accuracy(pred=pred.baseline, real=vote.test$vote_num)
 ```
 Here tbh i dont know wt to say lovis ;D
-
