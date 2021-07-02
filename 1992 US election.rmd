@@ -199,9 +199,10 @@ vote.test<-vote[-train.Index,]
 y.train<-vote.train$vote_num
 y.test<-vote.test$vote_num
 
-# X - a matrix with features/predictors 
+# TODO: set this with colnames
+# X - a matrix with features/predictors
 features<-c('dem','rep','female','persfinance','natlecon','clintondis_fo',
-            'bushdis_fo','perotdis_fo','polID') # !!set this with colnames
+            'bushdis_fo','perotdis_fo','polID')
 
 #model.matrix( ~ ., data = scoring.train[, features])
 X.train<-model.matrix(~ . -1, data=vote.train[,features]) # ??discrepancy between vote. & y.
@@ -258,7 +259,7 @@ y.predlog_r1 <-  predict(log_r1,    newx = X.test,
 ```
 
 ```{r}
-# !!change to original regressions
+# TODO: change to original regressions
 
 #only both 
 log1 <- glm(vote_num ~ dem + rep + female + persfinance + 
@@ -310,7 +311,7 @@ prp(dt)
 prp(dt, extra = 106, border.col = 0, box.palette="auto") 
 
 ```
-We decided to create a few models for the data set vote. We trained a portion of the data set to create a lasso and ridge model. We also created 3 logistic regression models. 2 that only have either categorical  or continues  variables   and the other one that has a combination of both. We also trained another portion of the data set for our decision tree and we created it.
+We decided to create a few models for the data set vote. We trained a portion of the data set to create a lasso and ridge model. We also created 3 logistic regression models. 2 that only have either categorical or continues variables and the other one that has a combination of both. We also trained another portion of the data set for our decision tree and we created it.
 
 ## Predictions
 ```{r}
